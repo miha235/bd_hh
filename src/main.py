@@ -54,11 +54,25 @@ def main():
 
     db_manager = DBManager(db_params)
 
-    # Спрашиваем пользователя, хочет ли он удалить таблицы
-    delete_choice = input("Хотите удалить существующие таблицы? (да/нет): ")
-    if delete_choice.lower() == 'да':
-        db_manager.delete_tables()  # Удаление таблиц
-        db_manager.create_tables()  # Создание таблиц сразу после удаления
+    # Создание базы данных и подключение к ней
+    db_created = db_manager.create_database()  # Функция возвращает True, если база данных создана, и False, если она уже существовала
+    db_manager.connect()  # Подключение к базе данных
+
+    # Проверяем, была ли база данных только что создана
+    if db_created:
+        # Если база данных создана, создаем таблицы сразу
+        db_manager.create_tables()
+        print("Таблицы созданы.")
+    else:
+        # Если база данных уже существовала, спрашиваем об удалении таблиц
+        delete_choice = input("Хотите удалить существующие таблицы? (да/нет): ")
+        if delete_choice.lower() == 'да':
+            db_manager.delete_tables()  # Удаление таблиц
+            db_manager.create_tables()  # Создание таблиц сразу после удаления
+            print("Таблицы удалены и созданы заново.")
+        else:
+            db_manager.create_tables()  # Создание таблиц без удаления
+            print("Таблицы созданы.")
 
     # Продолжение работы с API и базой данных
     companies = [
@@ -80,50 +94,71 @@ def main():
         company_name = company['name']
 
         db_company_id = db_manager.insert_company(company_name)
-        print(f"Загружаем вакансии для компании: {company_name}")
+        print(f"\nЗагружаем вакансии для компании: {company_name}")
 
         try:
             vacancies_data = api_handler.fetch_data(f"vacancies?employer_id={company_id}")
-            vacancies = vacancies_data.get('items', [])  # Извлечение списка вакансий
-            if isinstance(vacancies, list):  # Проверка, что 'vacancies' - это список
-                for vacancy in vacancies:
-                    if isinstance(vacancy, dict):  # Проверка, что 'vacancy' - это словарь
+            if vacancies_data:
+                vacancies = vacancies_data.get('items', [])  # Извлечение списка вакансий
+                if vacancies:
+                    for vacancy in vacancies:
                         salary_info = vacancy.get('salary', {})
-                        if isinstance(salary_info, dict):
-                            salary = salary_info.get('from', 0)  # Получаем зарплату из вложенного словаря
-                        else:
-                            salary = 0  # Если 'salary' не словарь, устанавливаем зарплату в 0
-
+                        salary = salary_info.get('from', 0) if isinstance(salary_info, dict) else 0
                         db_manager.insert_vacancy(vacancy['name'], salary, db_company_id)
-                    else:
-                        print(f"Ожидался словарь, но получен другой тип: {type(vacancy)}")
+                    print(f"Вакансии для компании {company_name} загружены успешно.")
+                else:
+                    print(f"Вакансии для компании {company_name} не найдены.")
             else:
-                print(f"Ожидался список, но получен другой тип: {type(vacancies)}")
+                print(f"Ошибка: Не удалось получить вакансии для компании ID {company_id}.")
         except requests.exceptions.HTTPError as e:
             print(f"Ошибка при получении данных для компании ID {company_id}: {e}")
 
-    # Пример вывода данных
-    print("Компании и количество вакансий:")
-    for company in db_manager.get_companies_and_vacancies_count():
-        print(company)
+    # Меню для вывода данных
+    while True:
+        print("\nВыберите действие:")
+        print("1. Показать компании и количество вакансий")
+        print("2. Показать все вакансии")
+        print("3. Показать среднюю зарплату")
+        print("4. Показать вакансии с зарплатой выше средней")
+        print("5. Поиск вакансий по ключевому слову")
+        print("6. Выход")
 
-    print("\nВсе вакансии:")
-    for vacancy in db_manager.get_all_vacancies():
-        print(vacancy)
+        choice = input("Введите номер действия: ").strip()
 
-    print("\nСредняя зарплата:")
-    print(db_manager.get_avg_salary())
+        if choice == '1':
+            print("\nКомпании и количество вакансий:")
+            for company in db_manager.get_companies_and_vacancies_count():
+                print(f"Компания: {company[0]}, Количество вакансий: {company[1]}")
 
-    print("\nВакансии с зарплатой выше средней:")
-    for vacancy in db_manager.get_vacancies_with_higher_salary():
-        print(vacancy)
+        elif choice == '2':
+            print("\nВсе вакансии:")
+            for vacancy in db_manager.get_all_vacancies():
+                print(f"Вакансия: {vacancy[0]}, Зарплата: {vacancy[2]}, Компания: {vacancy[1]}")
 
-    # Запрашиваем у пользователя ключевое слово для поиска вакансий
-    keyword = input("\nВведите ключевое слово для поиска вакансий: ").strip()
-    if keyword:
-        print(f"\nВакансии с ключевым словом '{keyword}':")
-        for vacancy in db_manager.get_vacancies_with_keyword(keyword):
-            print(vacancy)
+        elif choice == '3':
+            avg_salary = db_manager.get_avg_salary()
+            print(f"\nСредняя зарплата: {round(avg_salary)}")
+
+        elif choice == '4':
+            print("\nВакансии с зарплатой выше средней:")
+            vacancies = db_manager.get_vacancies_with_higher_salary()
+            for vacancy in vacancies:
+                # vacancy содержит только два элемента: название вакансии и зарплату
+                print(f"Вакансия: {vacancy[0]}, Зарплата: {vacancy[1]}")
+
+        elif choice == '5':
+            keyword = input("Введите ключевое слово для поиска вакансий: ").strip()
+            if keyword:
+                print(f"\nВакансии с ключевым словом '{keyword}':")
+                for vacancy in db_manager.get_vacancies_with_keyword(keyword):
+                    print(f"Вакансия: {vacancy[0]}, Компания: {vacancy[1]}, Зарплата: {vacancy[2]}")
+
+        elif choice == '6':
+            print("Выход из программы.")
+            break
+
+        else:
+            print("Неверный ввод. Попробуйте снова.")
 
     db_manager.close()
 

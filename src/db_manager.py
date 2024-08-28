@@ -1,5 +1,7 @@
 import psycopg2
+from psycopg2 import sql
 from typing import List, Dict, Tuple, Union
+
 
 class DBManager:
     def __init__(self, db_params: Dict[str, str]):
@@ -8,8 +10,48 @@ class DBManager:
 
         :param db_params: Словарь параметров подключения к базе данных. Ключи: 'dbname', 'user', 'password', 'host', 'port'.
         """
-        self.connection = psycopg2.connect(**db_params)
-        self.cursor = self.connection.cursor()
+        self.db_params = db_params
+        self.connection = None
+        self.cursor = None
+
+    def connect(self):
+        """
+        Подключение к базе данных.
+        """
+        try:
+            self.connection = psycopg2.connect(**self.db_params)
+            self.connection.autocommit = True
+            self.cursor = self.connection.cursor()
+            print("Успешное подключение к базе данных.")
+        except psycopg2.DatabaseError as e:
+            print(f"Ошибка подключения к базе данных: {e}")
+
+    def create_database(self):
+        """
+        Создание базы данных, если она не существует.
+        """
+        try:
+            # Подключаемся к системной БД PostgreSQL
+            conn = psycopg2.connect(
+                dbname='postgres',
+                user=self.db_params['user'],
+                password=self.db_params['password'],
+                host=self.db_params['host'],
+                port=self.db_params['port']
+            )
+            conn.autocommit = True
+            cur = conn.cursor()
+            # Проверка на существование базы данных и её создание
+            cur.execute(sql.SQL("SELECT 1 FROM pg_catalog.pg_database WHERE datname = %s"), [self.db_params['dbname']])
+            if not cur.fetchone():
+                cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(self.db_params['dbname'])))
+                print(f"База данных '{self.db_params['dbname']}' успешно создана.")
+            else:
+                print(f"База данных '{self.db_params['dbname']}' уже существует.")
+            cur.close()
+            conn.close()
+        except psycopg2.Error as e:
+            print(f"Ошибка при создании базы данных: {e}")
 
     def delete_tables(self):
         """
@@ -103,35 +145,43 @@ class DBManager:
         self.cursor.execute("SELECT AVG(salary) FROM vacancies")
         return self.cursor.fetchone()[0]
 
-    def get_vacancies_with_higher_salary(self) -> List[Tuple[str, int]]:
+    def get_vacancies_with_higher_salary(self) -> List[Tuple[str, int, str]]:
         """
         Получает список всех вакансий, у которых зарплата выше средней по всем вакансиям.
 
-        :return: Список кортежей, где каждый кортеж содержит название вакансии и зарплату.
+        :return: Список кортежей, где каждый кортеж содержит название вакансии, зарплату и название компании.
         """
         avg_salary = self.get_avg_salary()
         self.cursor.execute("""
-            SELECT v.title, v.salary FROM vacancies v
+            SELECT v.title, v.salary, c.name FROM vacancies v
+            JOIN companies c ON v.company_id = c.id
             WHERE v.salary > %s
         """, (avg_salary,))
         return self.cursor.fetchall()
 
-    def get_vacancies_with_keyword(self, keyword: str) -> List[Tuple[str, int]]:
+    def get_vacancies_with_keyword(self, keyword: str) -> List[Tuple[str, str, int]]:
         """
         Получает список всех вакансий, в названии которых содержится переданное слово (ключевое слово).
 
         :param keyword: Ключевое слово для поиска.
-        :return: Список кортежей, где каждый кортеж содержит название вакансии и зарплату.
+        :return: Список кортежей, где каждый кортеж содержит название вакансии, название компании и зарплату.
         """
         self.cursor.execute("""
-            SELECT v.title, v.salary FROM vacancies v
+            SELECT v.title, c.name, v.salary
+            FROM vacancies v
+            JOIN companies c ON v.company_id = c.id
             WHERE v.title ILIKE %s
         """, (f"%{keyword}%",))
-        return self.cursor.fetchall()
+        results = self.cursor.fetchall()
+        print("Таких вакансий не найдено")
+        return results
 
     def close(self):
         """
         Закрывает курсор и соединение с базой данных.
         """
-        self.cursor.close()
-        self.connection.close()
+        if self.cursor:
+            self.cursor.close()
+        if self.connection:
+            self.connection.close()
+            print("Подключение к базе данных закрыто.")
