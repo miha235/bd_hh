@@ -24,18 +24,18 @@
    ```bash
    pip install -r requirements.txt
 5. Запустите проект:
-python /путь/к/main.py
+   /bd_hh/src/main.py
 6. Следуйте инструкциям в командной строке.
 
-Зависимости
+## Зависимости
 Проект использует следующие библиотеки:
 requests
 psycopg2
 
-Gitignore
+## Gitignore
 В репозитории игнорируются следующие директории и файлы:
 
+.idea
 venv/
 __pycache__/
 .DS_Store
-
